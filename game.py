@@ -6,7 +6,7 @@ from consts import *
 
 class Game:
     def __init__(self, game_id):
-        self.w, self.h = 8, 8
+        self.w, self.h = W, H
         self.figures = [
             ((1, 1, 1),
              (1, 1, 1),
@@ -88,6 +88,8 @@ class Game:
             for i_row, i in enumerate(range(0, self.h * self.w, self.w)):
                 row = [int(j) for j in field[i:i + self.w]]
                 self.field[i_row] = row
+            if not self.get_state():
+                self.new_game()
         else:
             cursor.execute(f'''
             INSERT INTO games VALUES ({self.id}, {self.score}, 
@@ -96,6 +98,27 @@ class Game:
                                       {self.figures.index(self.figures_to_place[2])},
                                       "{'0' * self.w * self.h}")
             ''')
+        is_in_table = cursor.execute(f'SELECT * FROM settings WHERE id = {self.id}').fetchone()
+        if is_in_table:
+            settings = is_in_table[1:]
+            self.all_buttons_on_screen, *_ = settings
+        else:
+            cursor.execute(f'''
+            INSERT INTO settings VALUES ({self.id}, 1)
+            ''')
+            self.all_buttons_on_screen = True
+        self.connection.commit()
+
+    def change_settings(self, settings):
+        cursor = self.connection.cursor()
+        self.all_buttons_on_screen, *_ = settings
+
+        cursor.execute(f'''
+        UPDATE settings
+            SET all_buttons_on_screen = {self.all_buttons_on_screen}
+        WHERE id = {self.id}
+        ''')
+
         self.connection.commit()
 
     def new_game(self):
@@ -206,23 +229,24 @@ class Game:
         return all_moves
 
     def get_state(self):
-        return bool(self.get_moves())
+        return any(moves for i_figure, moves in self.get_moves().items())
 
     def save_record(self, name):
         cursor = self.connection.cursor()
         is_in_table = cursor.execute(f'SELECT value FROM records WHERE id = {self.id}').fetchone()
-        record = is_in_table[0]
         if is_in_table:
+            record = is_in_table[0]
             cursor.execute(f'''
             UPDATE records SET
-                name = {name}
+                name = "{name}",
                 value = {max(self.score, record)}
             WHERE id = {self.id}
             ''')
-            return
-        cursor.execute(f'''
-        INSERT INTO record VALUES ({self.id}, {name}, {self.score})
-        ''')
+        else:
+            cursor.execute(f'''
+            INSERT INTO records VALUES ({self.id}, "{name}", {self.score})
+            ''')
+        self.connection.commit()
 
     def get_field(self):
         return ''.join(''.join(str(i) for i in row) for row in self.field)
@@ -258,5 +282,35 @@ class Game:
                         image.paste(figure_block, pos)
 
         file_name = f'res{self.id}.png'
+        image.save(file_name)
+        return file_name
+
+    def get_records_image(self):
+        screen = Image.open('data/records_screen.png')
+
+        image = Image.new('RGB', screen.size)
+        image.paste(screen)
+
+        cursor = self.connection.cursor()
+        result = cursor.execute('''SELECT name, value FROM records ORDER BY value DESC''').fetchmany(10)
+
+        font = ImageFont.truetype('data/arialbd.ttf', 36)
+        draw = ImageDraw.Draw(image)
+        x, y = RECORDS_LIST_POS
+        draw.multiline_text((x + DX, y + DY),
+                            '\n'.join(f'{i}. {name}' for i, (name, value) in enumerate(result, 1)),
+                            fill=RECORDS_BG_COLOR, font=font, spacing=24)
+        draw.multiline_text((x, y),
+                            '\n'.join(f'{i}. {name}' for i, (name, value) in enumerate(result, 1)),
+                            fill=RECORDS_COLOR, font=font, spacing=24)
+        x, y = RECORDS_SCORES_POS
+        draw.multiline_text((x + DX, y + DY),
+                            '\n'.join(f'{value}' for name, value in result),
+                            fill=RECORDS_BG_COLOR, font=font, anchor='ra', align='right', spacing=24)
+        draw.multiline_text((x, y),
+                            '\n'.join(f'{value}' for name, value in result),
+                            fill=RECORDS_COLOR, font=font, anchor='ra', align='right', spacing=24)
+
+        file_name = f'records.png'
         image.save(file_name)
         return file_name
