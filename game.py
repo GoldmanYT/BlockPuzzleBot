@@ -104,7 +104,7 @@ class Game:
             self.all_buttons_on_screen, *_ = settings
         else:
             cursor.execute(f'''
-            INSERT INTO settings VALUES ({self.id}, 1)
+            INSERT INTO settings VALUES ({self.id}, 0)
             ''')
             self.all_buttons_on_screen = True
         self.connection.commit()
